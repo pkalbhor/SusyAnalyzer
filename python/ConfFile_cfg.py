@@ -13,9 +13,16 @@ process.source = cms.Source("PoolSource",
     )
 )
 
-process.demo = cms.EDAnalyzer('SusyAnalyzer'
-     , tracks = cms.untracked.InputTag('ctfWithMaterialTracks')
+process.demo = cms.EDAnalyzer('SusyAnalyzer', 
+       jettag = cms.untracked.InputTag("slimmedJets"),
+       prunedGenParticles = cms.untracked.InputTag("prunedGenParticles"),
+       slimmedElectrons = cms.untracked.InputTag("slimmedElectrons"),
+       slimmedMuons = cms.untracked.InputTag("slimmedMuons")
 )
 
+
+# Define output file name
+import os
+process.TFileService = cms.Service("TFileService", fileName = cms.string("Susy_Tree.root"))#(os.getenv('CMSSW_BASE') + '/src/Demo/DemoAnalyzer/test/Pt_ditribution.root'))
 
 process.p = cms.Path(process.demo)
