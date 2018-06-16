@@ -44,6 +44,10 @@
 #include "DataFormats/PatCandidates/interface/Muon.h"
 #include "PhysicsTools/PatAlgos/plugins/PATJetProducer.h"
 
+#include "DataFormats/PatCandidates/interface/MET.h"
+#include "DataFormats/METReco/interface/MET.h"
+#include <iostream>
+#include <DataFormats/PatCandidates/interface/Photon.h>
 
 
 //
@@ -81,7 +85,7 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
       //edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configuration file
         edm::InputTag jettag;
         edm::EDGetTokenT<edm::View<pat::Jet>>  JetToken_;
-
+	
         edm::InputTag slimmedElectrons;
         edm::EDGetTokenT<edm::View<pat::Electron>>  slimmedElectronsToken_;
 
@@ -91,13 +95,31 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
         edm::InputTag prunedGenParticles;
         edm::EDGetTokenT<edm::View<reco::GenParticle>>  prunedGenParticlesToken_;
 
+        edm::InputTag slimmedPhotons;
+        edm::EDGetTokenT<edm::View<pat::Photon>>  slimmedPhotonsToken_;
+
         TTree *MyTree;
         std::vector<float> PtJet;
         std::vector<float> EtaJet;
+	std::vector<float> PhiJet;
+	std::vector<float> EnJet;
 
         std::vector<float> PtElec;
         std::vector<float> EtaElec;
+        std::vector<float> PhiElec;
       
+        std::vector<float> PtMuon;
+        std::vector<float> EtaMuon;
+        std::vector<float> PhiMuon;
+
+        std::vector<float> PtGenPart;
+        std::vector<float> EtaGenPart;
+        std::vector<float> PhiGenPart;
+
+        std::vector<float> PtGamma;
+        std::vector<float> EtaGamma;
+        std::vector<float> PhiGamma;
+
 };
 
 //
@@ -124,7 +146,10 @@ slimmedMuons(iConfig.getUntrackedParameter<edm::InputTag>("slimmedMuons")),
 slimmedMuonsToken_(consumes<edm::View<pat::Muon>>(slimmedMuons)),
 
 prunedGenParticles(iConfig.getUntrackedParameter<edm::InputTag>("prunedGenParticles")),
-prunedGenParticlesToken_(consumes<edm::View<reco::GenParticle>>(prunedGenParticles))
+prunedGenParticlesToken_(consumes<edm::View<reco::GenParticle>>(prunedGenParticles)),
+
+slimmedPhotons(iConfig.getUntrackedParameter<edm::InputTag>("slimmedPhotons")),
+slimmedPhotonsToken_(consumes<edm::View<pat::Photon>>(slimmedPhotons))
 
 {
    //now do what ever initialization is needed
@@ -135,9 +160,24 @@ prunedGenParticlesToken_(consumes<edm::View<reco::GenParticle>>(prunedGenParticl
 
    MyTree->Branch("PtJet", &PtJet);
    MyTree->Branch("EtaJet", &EtaJet);
-
+   MyTree->Branch("PhiJet", &PhiJet);
+   MyTree->Branch("EnJet", &EnJet);
+ 
    MyTree->Branch("PtElec", &PtElec);
    MyTree->Branch("EtaElec", &EtaElec);
+   MyTree->Branch("PhiElec", &PhiElec);
+
+   MyTree->Branch("PtMuon", &PtMuon);
+   MyTree->Branch("EtaMuon", &EtaMuon);
+   MyTree->Branch("PhiMuon", &PhiMuon);
+
+   MyTree->Branch("PtGenPart", &PtGenPart);
+   MyTree->Branch("EtaGenPart", &EtaGenPart);
+   MyTree->Branch("PhiGenPart", &PhiGenPart);
+
+   MyTree->Branch("PtGamma", &PtGamma);
+   MyTree->Branch("EtaGamma", &EtaGamma);
+   MyTree->Branch("PhiGamma", &PhiGamma);
 
 }
 
@@ -170,27 +210,56 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
       // int charge = itTrack->charge();
     }
 */
-
-        PtJet.clear(); EtaJet.clear();
+        
+        PtJet.clear(); EtaJet.clear(); PhiJet.clear(); EnJet.clear();
 
         edm::Handle< View<pat::Jet>> jetCands;
              iEvent.getByToken(JetToken_,jetCands);
              for(View<pat::Jet>::const_iterator iJet = jetCands->begin(); iJet != jetCands->end(); ++iJet){
-                std::cout << "jetpt: " << iJet->pt() << std::endl;
-                std::cout << "jeteta" << iJet->eta() << std::endl;
-                std::cout << "jetphi" << iJet->phi() <<std::endl;
-
                 PtJet.push_back(iJet->pt());
                 EtaJet.push_back(iJet->eta());
+                PhiJet.push_back(iJet->phi());
+		EnJet.push_back(iJet->energy());
              }
 
-        PtElec.clear(); EtaElec.clear();
+        PtElec.clear(); EtaElec.clear(); PhiElec.clear();
         edm::Handle< View<pat::Electron>> eCand;
              iEvent.getByToken(slimmedElectronsToken_,eCand);
              for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){
                 PtElec.push_back(i->pt());
                 EtaElec.push_back(i->eta());
+                PhiElec.push_back(i->phi());
              }
+
+       PtMuon.clear(); EtaMuon.clear(); PhiMuon.clear();
+        edm::Handle< View<pat::Muon>> mCand;
+             iEvent.getByToken(slimmedMuonsToken_,mCand);
+             for(View<pat::Muon>::const_iterator i = mCand->begin(); i!=mCand->end(); ++i){
+                PtMuon.push_back(i->pt());
+                EtaMuon.push_back(i->eta());
+                PhiMuon.push_back(i->phi());
+             }
+
+       PtGenPart.clear(); EtaGenPart.clear(); PhiGenPart.clear();
+        edm::Handle< View<reco::GenParticle>> gCand;
+             iEvent.getByToken(prunedGenParticlesToken_,gCand);
+             for(View<reco::GenParticle>::const_iterator j = gCand->begin(); j!=gCand->end(); ++j){
+                PtGenPart.push_back(j->pt());
+                EtaGenPart.push_back(j->eta());
+                PhiGenPart.push_back(j->phi());
+             }
+
+        PtGamma.clear(); EtaGamma.clear(); PhiGamma.clear();
+        edm::Handle< View<pat::Photon>> pCand;
+             iEvent.getByToken(slimmedPhotonsToken_,pCand);
+             for(View<pat::Photon>::const_iterator p = pCand->begin(); p != pCand->end(); ++p){
+                PtGamma.push_back(p->pt());
+                EtaGamma.push_back(p->eta());
+                PhiGamma.push_back(p->phi());
+             }
+
+
+
 
 MyTree->Fill();
 

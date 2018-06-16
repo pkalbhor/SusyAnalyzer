@@ -4,7 +4,7 @@ process = cms.Process("Demo")
 
 process.load("FWCore.MessageService.MessageLogger_cfi")
 
-process.maxEvents = cms.untracked.PSet( input = cms.untracked.int32(10) )
+process.maxEvents = cms.untracked.PSet( input = cms.untracked.int32(1000) )
 
 process.source = cms.Source("PoolSource",
     # replace 'myfile.root' with the source file you want to use
@@ -17,7 +17,8 @@ process.demo = cms.EDAnalyzer('SusyAnalyzer',
        jettag = cms.untracked.InputTag("slimmedJets"),
        prunedGenParticles = cms.untracked.InputTag("prunedGenParticles"),
        slimmedElectrons = cms.untracked.InputTag("slimmedElectrons"),
-       slimmedMuons = cms.untracked.InputTag("slimmedMuons")
+       slimmedMuons = cms.untracked.InputTag("slimmedMuons"),
+       slimmedPhotons = cms.untracked.InputTag("slimmedPhotons")
 )
 
 
