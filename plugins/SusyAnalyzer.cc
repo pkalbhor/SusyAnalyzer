@@ -126,7 +126,8 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
  //   	float hoe2;
 	std::vector<float> ElecSieieBarrel;
 	std::vector<float> ElecSieieEC;
- 
+	std::vector<int> Elec_prompt; 
+
         std::vector<float> PtMuon;
         std::vector<float> EtaMuon;
         std::vector<float> PhiMuon;
@@ -229,7 +230,7 @@ MetTagToken_(consumes<edm::View<pat::MET>>(MetTag))
 //   MyTree->Branch("hoe2", &hoe2);
    MyTree->Branch("ElecSieieBarrel", &ElecSieieBarrel);
    MyTree->Branch("ElecSieieEC", &ElecSieieEC);
-
+   MyTree->Branch("Prompt_Electron", &Elec_prompt);
 
    MyTree->Branch("PtMuon", &PtMuon);
    MyTree->Branch("EtaMuon", &EtaMuon);
@@ -301,7 +302,10 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 
 	edm::Handle< View<reco::Vertex>> vertx;
 	iEvent.getByToken(PVerticesToken_, vertx); 
-       
+      
+         edm::Handle< View<reco::GenParticle>> iGen;
+         iEvent.getByToken(prunedGenParticlesToken_,iGen);
+ 
         PtJet.clear(); EtaJet.clear(); PhiJet.clear(); EnJet.clear();
 
 	//Jets
@@ -315,7 +319,7 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
              }
 
 	//Electrons
-        PtElec.clear(); EtaElec.clear(); PhiElec.clear(); sieie.clear(); convVeto.clear(); mhits.clear(); dEtaIn.clear(); dPhiIn.clear(); hoe.clear(); ooemoop.clear(); d0vtx.clear(); dzvtx.clear(); ElecSieieBarrel.clear(); ElecSieieEC.clear();
+        PtElec.clear(); EtaElec.clear(); PhiElec.clear(); sieie.clear(); convVeto.clear(); mhits.clear(); dEtaIn.clear(); dPhiIn.clear(); hoe.clear(); ooemoop.clear(); d0vtx.clear(); dzvtx.clear(); ElecSieieBarrel.clear(); ElecSieieEC.clear(); Elec_prompt.clear();
         edm::Handle< View<pat::Electron>> eCand;
              iEvent.getByToken(slimmedElectronsToken_,eCand);
              for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){
@@ -339,6 +343,23 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
                 }else if(isEndcapElec){
                         ElecSieieEC.push_back(i->full5x5_sigmaIetaIeta());
                 }
+		
+	      if (iGen.isValid()){//genLevel Stuff
+        	// loop over gen particles and find nonprompt ELECTRONS
+	                 int matchedGenPrompt = 0;
+                         int matchedGenNonPrompt = 0;
+			for(View<reco::GenParticle>::const_iterator j = iGen->begin(); j!=iGen->end(); ++j){//genparticle loop
+				if( j->pdgId() == 11 && ( ( j->status() / 10 ) == 2 || j->status() == 1 || j->status() == 2) ){
+					if(deltaR(j->p4(),i->p4()) < 0.1 && abs(j->mother()->pdgId())==23)matchedGenPrompt++;
+					else matchedGenNonPrompt++;
+				}//conditions for prompt not-prompt electron
+			}//End of genparticle loop
+
+		
+		if(matchedGenPrompt > 0) Elec_prompt.push_back(true);
+		else Elec_prompt.push_back(false);
+
+        	}//end of genLevel Stuff
 
                 PtElec.push_back(i->pt());
                 EtaElec.push_back(i->eta());
@@ -372,9 +393,7 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 
 	//GenParticles
        PtGenPart.clear(); EtaGenPart.clear(); PhiGenPart.clear();
-        edm::Handle< View<reco::GenParticle>> iGen;
-             iEvent.getByToken(prunedGenParticlesToken_,iGen);
-             for(View<reco::GenParticle>::const_iterator j = iGen->begin(); j!=iGen->end(); ++j){
+            for(View<reco::GenParticle>::const_iterator j = iGen->begin(); j!=iGen->end(); ++j){
                 PtGenPart.push_back(j->pt());
                 EtaGenPart.push_back(j->eta());
                 PhiGenPart.push_back(j->phi());
@@ -417,7 +436,7 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 		//deltaR==functions to compute deltaR
 
 		for(View<reco::GenParticle>::const_iterator j = iGen->begin(); j!=iGen->end(); ++j){
-			if( j->pdgId() == 11 && ( ( j->status() / 10 ) == 2 || j->status() == 1 || j->status() == 2 ) ){
+			if( j->pdgId() == 22 && ( ( j->status() / 10 ) == 2 || j->status() == 1 || j->status() == 2 ) ){
 			if( deltaR(j->p4(), p->p4()) < 0.2 ){
 			if( abs(j->mother()->pdgId()) > 100 && abs(j->mother()->pdgId()) < 1000000 && abs(j->mother()->pdgId()) != 2212 ) matchedGenNonPrompt++ ;
 			if( abs(j->mother()->pdgId()) <= 100 || abs(j->mother()->pdgId()) == 2212 ){
