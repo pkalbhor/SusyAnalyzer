@@ -10,4 +10,5 @@
 <use name="PhysicsTools/UtilAlgos"/>
 <use name="FWCore/ServiceRegistry"/>
 
+<use name="DataFormats/VertexReco"/>
 <flags EDM_PLUGIN="1"/>
