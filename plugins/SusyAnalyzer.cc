@@ -51,6 +51,8 @@
 #include "DataFormats/VertexReco/interface/Vertex.h"
 
 #include "DataFormats/Math/interface/deltaR.h"
+
+#include "MuonProducer.h"
 //
 //
 // class declaration
@@ -69,18 +71,20 @@
 
 using reco::TrackCollection;
 
-class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
+class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources> {
    public:
       explicit SusyAnalyzer(const edm::ParameterSet&);
       ~SusyAnalyzer();
 
       static void fillDescriptions(edm::ConfigurationDescriptions& descriptions);
-
+//      bool ElectronID(const pat::Electron & electron, const reco::Vertex & vtx, const elecIDLevel level);
 
    private:
       virtual void beginJob() override;
       virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
       virtual void endJob() override;
+      enum elecIDLevel {VETO, LOOSE, MEDIUM, TIGHT};
+      bool ElectronID(const pat::Electron & electron, const reco::Vertex & vtx, const elecIDLevel level);
 
       // ----------member data ---------------------------
       //edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configuration file
@@ -105,6 +109,7 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
 	edm::InputTag MetTag;
 	edm::EDGetTokenT<edm::View<pat::MET>> MetTagToken_;
 
+
         TTree *MyTree;
         std::vector<float> PtJet;
         std::vector<float> EtaJet;
@@ -127,6 +132,13 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
 	std::vector<float> ElecSieieBarrel;
 	std::vector<float> ElecSieieEC;
 	std::vector<int> Elec_prompt; 
+	std::vector<int> ChargeElec;
+	int ChElec; //This and next one var is for invariant mass calculation
+	double InvM;
+	double maxElecEta_;
+	double InvM_with_cuts;
+	int matchedGenPromptElectrons;
+	int genmatched_with_cuts;
 
         std::vector<float> PtMuon;
         std::vector<float> EtaMuon;
@@ -206,6 +218,8 @@ MetTagToken_(consumes<edm::View<pat::MET>>(MetTag))
 {
    //now do what ever initialization is needed
 
+ 
+
    usesResource("TFileService");
    edm::Service<TFileService> fs;
    MyTree = fs->make<TTree>("DYJet","DY");
@@ -230,7 +244,12 @@ MetTagToken_(consumes<edm::View<pat::MET>>(MetTag))
 //   MyTree->Branch("hoe2", &hoe2);
    MyTree->Branch("ElecSieieBarrel", &ElecSieieBarrel);
    MyTree->Branch("ElecSieieEC", &ElecSieieEC);
-   MyTree->Branch("Prompt_Electron", &Elec_prompt);
+   MyTree->Branch("Prompt_Electrons", &Elec_prompt);
+   MyTree->Branch("ChargeElec", &ChargeElec);
+   MyTree->Branch("Inv_mass", &InvM);
+   MyTree->Branch("Inv_mass_with_cuts", &InvM_with_cuts);
+   MyTree->Branch("matchedGenPromptElectrons", &matchedGenPromptElectrons);
+   MyTree->Branch("genmatched_with_cuts", &genmatched_with_cuts);
 
    MyTree->Branch("PtMuon", &PtMuon);
    MyTree->Branch("EtaMuon", &EtaMuon);
@@ -299,7 +318,9 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
       // int charge = itTrack->charge();
     }
 */
-
+	
+	
+	
 	edm::Handle< View<reco::Vertex>> vertx;
 	iEvent.getByToken(PVerticesToken_, vertx); 
       
@@ -319,13 +340,107 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
              }
 
 	//Electrons
-        PtElec.clear(); EtaElec.clear(); PhiElec.clear(); sieie.clear(); convVeto.clear(); mhits.clear(); dEtaIn.clear(); dPhiIn.clear(); hoe.clear(); ooemoop.clear(); d0vtx.clear(); dzvtx.clear(); ElecSieieBarrel.clear(); ElecSieieEC.clear(); Elec_prompt.clear();
+        PtElec.clear(); EtaElec.clear(); PhiElec.clear(); sieie.clear(); convVeto.clear(); mhits.clear(); dEtaIn.clear(); dPhiIn.clear(); hoe.clear(); ooemoop.clear(); d0vtx.clear(); dzvtx.clear(); ElecSieieBarrel.clear(); ElecSieieEC.clear(); Elec_prompt.clear(); ChargeElec.clear();
+
         edm::Handle< View<pat::Electron>> eCand;
              iEvent.getByToken(slimmedElectronsToken_,eCand);
-             for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){
 
 
-                double ElecEta=i->eta();
+		int foundp=0, foundm=0;	
+	     if(eCand.isValid()){	
+	     for(unsigned int e=0; e<eCand->size(); ++e){//loop1
+		const pat::Electron aEle = eCand->at(e);
+		cout<<"e: "<<e<<" eCand_size: "<< eCand->size() <<" aEle: "<<aEle<<" ePt: "<<eCand->at(e).pt()<<"\n";
+                const reco::Vertex vtx = vertx->at(0);
+
+		cout<<" IsElectronEB: "<<aEle.isEB()<<" : "<< aEle.isEE()<<endl;
+		cout<<"dEta: "<<aEle.deltaEtaSuperClusterTrackAtVtx()<<" : "<< aEle.deltaPhiSuperClusterTrackAtVtx()<<endl;
+                cout<<"Eid: "<<int(ElectronID(aEle, vtx, VETO))<<endl; 
+           
+		genmatched_with_cuts=0;
+ 	        if (iGen.isValid()){//genLevel Stuff
+                // loop over gen particles and find nonprompt ELECTRONS
+			  int matchedGenPrompt = 0;
+			  int matchedGenNonPrompt = 0;
+			  matchedGenPromptElectrons=0;
+                   for(View<reco::GenParticle>::const_iterator j = iGen->begin(); j!=iGen->end(); ++j){//genparticle loop
+                         if( j->pdgId() == abs(11)  && ( ( j->status() / 10 ) == 2 || j->status() == 1 || j->status() == 2) ){//choose sim eletron
+                         if(deltaR(j->p4(),aEle.p4()) < 0.1 && abs(j->mother()->pdgId())==23)matchedGenPrompt++;
+                   	 else matchedGenNonPrompt++;
+			 }//conditions for prompt not-prompt electron
+                     }//End of genparticle loop
+
+			cout<<"MatchgenElec: "<<matchedGenPrompt <<endl;
+			cout<<"getmatched and EleID: "<<bool(matchedGenPrompt && ElectronID(aEle, vtx, VETO))<<endl;
+
+			if (matchedGenPrompt>0)matchedGenPromptElectrons=true;//store genmatched electrons
+			
+			genmatched_with_cuts=0;
+			if(bool(matchedGenPrompt && ElectronID(aEle, vtx, VETO)) ){//if1
+				Elec_prompt.push_back(true);
+/*			for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){//outer for loop
+				if (not(i->charge()>0)) continue;
+				genmatched_with_cuts=0;
+				for(View<pat::Electron>::const_iterator j = eCand->begin(); j != eCand->end(); ++j){
+					if (not(j->charge()<0)) continue;
+					genmatched_with_cuts=genmatched_with_cuts+1;
+					//Elec_prompt.push_back(true);
+					cout<<"genmatched_with_cuts: "<<genmatched_with_cuts<<endl;
+					InvM_with_cuts = (i->p4() + j->p4()).M();				
+				}//inner for loop
+			} //outer for loop end	
+*/
+			}//end of if1
+			else Elec_prompt.push_back(false);
+
+                }//Gen_level_stuff
+
+		 pat::Electron aEle1, aEle2;
+
+//		if(ElectronID(aEle, vtx, VETO)){
+		{
+				if ( (aEle.charge()>0) and foundp==0 ){
+					foundp=1;
+					cout<<"\nfoundp:\n";
+					aEle1 = eCand->at(e);
+					}
+				if ( (aEle.charge()<0) and foundm==0){
+					foundm=1;
+					cout<<"\nfoundm: \n";
+					aEle2 =eCand->at(e);
+					}
+				if (foundp==1 and foundm==1){
+					 cout<<"Yess\n\n\n\n"<<endl;
+					 InvM_with_cuts = (aEle1.p4() + aEle2.p4()).M();
+					}
+				}
+		}//end of loop1
+	     }//end of electron loop
+
+		
+
+             for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){//Electron loop
+
+//		cout<<" en"<< i->p4()<<" Charge: "<< i->charge()<<" Energy: "<< i->energy()<<" \n";
+		
+		cout<<"iPt: "<<i->pt()<<endl;
+		
+				
+		if (not(i->charge()>0)) continue;
+		if (not (i->pt()>25) or not(i->pt()>15)) continue;
+		for(View<pat::Electron>::const_iterator iElec = eCand->begin(); iElec != eCand->end(); ++iElec){//invmass loop
+			if (not(iElec->charge()<0)) continue;
+			if (i->pt()>25){
+				if (not (iElec->pt()>15) ) continue;
+				}
+			else{
+				if (not (iElec->pt()>25) ) continue;
+				}
+		//	InvM= (i->p4() + iElec->p4()).M();	
+		//	cout<<"1: "<<i->p4()<<" "<<iElec->p4() <<" 2: "<<i->pt()<<" " << iElec->pt()<<" InvM: "<<InvM<<endl;
+		}//end of invmass loop
+
+		double ElecEta=i->eta();
                 bool isBarrelElec=false; //to distinguish barrel and endcap electrons
                 bool isEndcapElec=false;
 
@@ -343,8 +458,9 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
                 }else if(isEndcapElec){
                         ElecSieieEC.push_back(i->full5x5_sigmaIetaIeta());
                 }
-		
-	      if (iGen.isValid()){//genLevel Stuff
+
+				
+/*	      if (iGen.isValid()){//genLevel Stuff
         	// loop over gen particles and find nonprompt ELECTRONS
 	                 int matchedGenPrompt = 0;
                          int matchedGenNonPrompt = 0;
@@ -356,10 +472,13 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 			}//End of genparticle loop
 
 		
-		if(matchedGenPrompt > 0) Elec_prompt.push_back(true);
+		if(matchedGenPrompt > 0){
+			 Elec_prompt.push_back(true);
+			
+		}
 		else Elec_prompt.push_back(false);
 
-        	}//end of genLevel Stuff
+        	}//end of genLevel Stuff */
 
                 PtElec.push_back(i->pt());
                 EtaElec.push_back(i->eta());
@@ -373,6 +492,7 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 		ooemoop.push_back(fabs(1.0/i->ecalEnergy() - i->eSuperClusterOverP()/i->ecalEnergy()));
 		d0vtx.push_back(i->gsfTrack()->dxy(vertx->at(0).position()));
 		dzvtx.push_back(i->gsfTrack()->dz(vertx->at(0).position()));			
+		ChargeElec.push_back(i->charge());
 	      }
 	//End for Electrons
 	//
@@ -534,6 +654,70 @@ SusyAnalyzer::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
   //desc.addUntracked<edm::InputTag>("tracks","ctfWithMaterialTracks");
   //descriptions.addDefault(desc);
 }
+
+bool SusyAnalyzer::ElectronID(const pat::Electron & electron, const reco::Vertex & vtx, const elecIDLevel level) {
+  // electron ID cuts
+  //
+  //   // barrel electrons
+	double eb_ieta_cut[4] = {0.0114, 0.0103, 0.0101, 0.0101};
+	double eb_deta_cut[4] = {0.0152, 0.0105, 0.0103, 0.00926};
+	double eb_dphi_cut[4] = {0.216, 0.115, 0.0336, 0.0336};	
+	double eb_hovere_cut[4] = {0.181, 0.104, 0.0876, 0.0597};
+	double eb_ooeminusoop_cut[4] = {0.207, 0.102, 0.0174, 0.012};
+	double eb_d0_cut[4] = {0.0564, 0.0261, 0.0118, 0.0111};
+	double eb_dz_cut[4] = {0.472, 0.41, 0.373, 0.0466};
+	int eb_misshits_cut[4] = {2, 2, 2, 2};
+
+
+	//endcap electrons
+	double ee_ieta_cut[4] = {0.0352, 0.0301, 0.0283, 0.0279};
+	double ee_deta_cut[4] = {0.0113, 0.00814, 0.00733, 0.00724};
+	double ee_dphi_cut[4] = {0.237, 0.182, 0.114, 0.0918};
+	double ee_hovere_cut[4] = {0.116, 0.0897, 0.0678, 0.0615};
+	double ee_ooeminusoop_cut[4] = {0.174, 0.126, 0.0898, 0.00999};
+	double ee_d0_cut[4] = {0.222, 0.118, 0.0739, 0.0351};
+	double ee_dz_cut[4] = {0.921, 0.822, 0.602, 0.417};
+	int ee_misshits_cut[4] = {3, 1, 1, 1};
+
+	//common
+	 bool reqConvVeto[4] = {true, true, true, true};
+
+	// endcap electrons
+	double dEtaIn  = electron.deltaEtaSuperClusterTrackAtVtx();
+	double dPhiIn = electron.deltaPhiSuperClusterTrackAtVtx();
+	double sieie = electron.full5x5_sigmaIetaIeta();
+	bool convVeto = electron.passConversionVeto();
+	int mhits = electron.gsfTrack()->hitPattern().numberOfLostHits(reco::HitPattern::MISSING_INNER_HITS);
+	double hoe   = electron.hadronicOverEm();
+	double ooemoop = fabs(1.0/electron.ecalEnergy() - electron.eSuperClusterOverP()/electron.ecalEnergy());
+	double d0vtx = electron.gsfTrack()->dxy(vtx.position());
+	double dzvtx = electron.gsfTrack()->dz(vtx.position());
+
+	if (electron.isEB()) {
+	return eb_deta_cut[level] > fabs(dEtaIn)
+	&& eb_dphi_cut[level] > fabs(dPhiIn)
+	&& eb_ieta_cut[level] > sieie
+	&& eb_hovere_cut[level] > hoe
+	&& eb_d0_cut[level] > fabs(d0vtx)
+	&& eb_dz_cut[level] > fabs(dzvtx)
+	&& eb_ooeminusoop_cut[level] > fabs(ooemoop)
+	&& (!reqConvVeto[level] || convVeto)
+	&& (eb_misshits_cut[level] >= mhits);
+	
+	}else if (electron.isEE()) {
+	return ee_deta_cut[level] > fabs(dEtaIn)
+	&& ee_dphi_cut[level] > fabs(dPhiIn)
+	&& ee_ieta_cut[level] > sieie
+	&& ee_hovere_cut[level] > hoe
+	&& ee_d0_cut[level] > fabs(d0vtx)
+	&& ee_dz_cut[level] > fabs(dzvtx)
+	&& ee_ooeminusoop_cut[level] > fabs(ooemoop)
+	&& (!reqConvVeto[level] || convVeto)
+	&& (ee_misshits_cut[level] >= mhits);
+	} else return false;
+
+
+  }//End of ElectronID function
 
 //define this as a plug-in
 DEFINE_FWK_MODULE(SusyAnalyzer);
