@@ -19,6 +19,8 @@
 
 // system include files
 #include <memory>
+#include <iostream>
+#include <fstream>
 
 // user include files
 #include "FWCore/Framework/interface/Frameworkfwd.h"
@@ -84,7 +86,7 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources> {
       virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
       virtual void endJob() override;
       enum elecIDLevel {VETO, LOOSE, MEDIUM, TIGHT};
-      bool ElectronID(const pat::Electron & electron, const reco::Vertex & vtx, const elecIDLevel level);
+      bool ElectronID(View<pat::Electron>::const_iterator aEle, const reco::Vertex & vtx, const elecIDLevel level);
 
       // ----------member data ---------------------------
       //edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configuration file
@@ -135,10 +137,11 @@ class SusyAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources> {
 	std::vector<int> ChargeElec;
 	int ChElec; //This and next one var is for invariant mass calculation
 	double InvM;
+	double InvM_ptcut;
 	double maxElecEta_;
 	double InvM_with_cuts;
-	int matchedGenPromptElectrons;
-	int genmatched_with_cuts;
+	std::vector<int> matchedGenPromptElectrons;
+	std::vector<int> genmatchedWithID;
 
         std::vector<float> PtMuon;
         std::vector<float> EtaMuon;
@@ -218,7 +221,8 @@ MetTagToken_(consumes<edm::View<pat::MET>>(MetTag))
 {
    //now do what ever initialization is needed
 
- 
+   ofstream ifile;
+   ifile.open("text.txt");
 
    usesResource("TFileService");
    edm::Service<TFileService> fs;
@@ -247,9 +251,11 @@ MetTagToken_(consumes<edm::View<pat::MET>>(MetTag))
    MyTree->Branch("Prompt_Electrons", &Elec_prompt);
    MyTree->Branch("ChargeElec", &ChargeElec);
    MyTree->Branch("Inv_mass", &InvM);
+   MyTree->Branch("Inv_mass_ptcut", &InvM_ptcut);
    MyTree->Branch("Inv_mass_with_cuts", &InvM_with_cuts);
    MyTree->Branch("matchedGenPromptElectrons", &matchedGenPromptElectrons);
-   MyTree->Branch("genmatched_with_cuts", &genmatched_with_cuts);
+   MyTree->Branch("genmatchedWithID", &genmatchedWithID);
+  
 
    MyTree->Branch("PtMuon", &PtMuon);
    MyTree->Branch("EtaMuon", &EtaMuon);
@@ -293,6 +299,7 @@ MetTagToken_(consumes<edm::View<pat::MET>>(MetTag))
 SusyAnalyzer::~SusyAnalyzer()
 {
 
+//	ifile.close();
    // do anything here that needs to be done at desctruction time
    // (e.g. close files, deallocate resources etc.)
 
@@ -340,44 +347,58 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
              }
 
 	//Electrons
-        PtElec.clear(); EtaElec.clear(); PhiElec.clear(); sieie.clear(); convVeto.clear(); mhits.clear(); dEtaIn.clear(); dPhiIn.clear(); hoe.clear(); ooemoop.clear(); d0vtx.clear(); dzvtx.clear(); ElecSieieBarrel.clear(); ElecSieieEC.clear(); Elec_prompt.clear(); ChargeElec.clear();
+        PtElec.clear(); EtaElec.clear(); PhiElec.clear(); sieie.clear(); convVeto.clear(); mhits.clear(); dEtaIn.clear(); dPhiIn.clear(); hoe.clear(); ooemoop.clear(); d0vtx.clear(); dzvtx.clear(); ElecSieieBarrel.clear(); ElecSieieEC.clear(); Elec_prompt.clear(); ChargeElec.clear(); genmatchedWithID.clear(); matchedGenPromptElectrons.clear();
 
         edm::Handle< View<pat::Electron>> eCand;
              iEvent.getByToken(slimmedElectronsToken_,eCand);
+	
+		ofstream ifile;	
+		ifile.open("text.txt", ios::app);
+		ifile << "Event completed \n"<<endl;
 
-
-		int foundp=0, foundm=0;	
 	     if(eCand.isValid()){	
-	     for(unsigned int e=0; e<eCand->size(); ++e){//loop1
-		const pat::Electron aEle = eCand->at(e);
-		cout<<"e: "<<e<<" eCand_size: "<< eCand->size() <<" aEle: "<<aEle<<" ePt: "<<eCand->at(e).pt()<<"\n";
+	     for(View<pat::Electron>::const_iterator aEle = eCand->begin(); aEle != eCand->end(); ++aEle){//loop1
+//		const pat::Electron aEle = eCand->at(e);
+//		cout<<"e: "<<e<<" eCand_size: "<< eCand->size() <<" aEle: "<<aEle<<" ePt: "<<eCand->at(e).pt()<<"\n";
                 const reco::Vertex vtx = vertx->at(0);
 
-		cout<<" IsElectronEB: "<<aEle.isEB()<<" : "<< aEle.isEE()<<endl;
-		cout<<"dEta: "<<aEle.deltaEtaSuperClusterTrackAtVtx()<<" : "<< aEle.deltaPhiSuperClusterTrackAtVtx()<<endl;
-                cout<<"Eid: "<<int(ElectronID(aEle, vtx, VETO))<<endl; 
+//		cout<<" IsElectronEB: "<<aEle.isEB()<<" : "<< aEle.isEE()<<endl;
+		cout<<"dEta: "<<aEle->deltaEtaSuperClusterTrackAtVtx()<<" : "<< aEle->deltaPhiSuperClusterTrackAtVtx()<<endl;
+//                cout<<"Eid: "<<int(ElectronID(aEle, vtx, VETO))<<endl; 
            
-		genmatched_with_cuts=0;
  	        if (iGen.isValid()){//genLevel Stuff
                 // loop over gen particles and find nonprompt ELECTRONS
 			  int matchedGenPrompt = 0;
 			  int matchedGenNonPrompt = 0;
-			  matchedGenPromptElectrons=0;
                    for(View<reco::GenParticle>::const_iterator j = iGen->begin(); j!=iGen->end(); ++j){//genparticle loop
                          if( j->pdgId() == abs(11)  && ( ( j->status() / 10 ) == 2 || j->status() == 1 || j->status() == 2) ){//choose sim eletron
-                         if(deltaR(j->p4(),aEle.p4()) < 0.1 && abs(j->mother()->pdgId())==23)matchedGenPrompt++;
+                         if(deltaR(j->p4(),aEle->p4()) < 0.1 && abs(j->mother()->pdgId())==23)matchedGenPrompt++;
                    	 else matchedGenNonPrompt++;
 			 }//conditions for prompt not-prompt electron
                      }//End of genparticle loop
 
 			cout<<"MatchgenElec: "<<matchedGenPrompt <<endl;
-			cout<<"getmatched and EleID: "<<bool(matchedGenPrompt && ElectronID(aEle, vtx, VETO))<<endl;
-
-			if (matchedGenPrompt>0)matchedGenPromptElectrons=true;//store genmatched electrons
+			cout<<"EleID: "<<ElectronID(aEle, vtx, VETO)<<endl;
+			cout<<"getmatched and EleID: "<<bool(matchedGenPrompt && ElectronID(aEle, vtx, VETO))<<" Charge: "<<aEle->charge()<<endl;
+		
+				
+			if(ElectronID(aEle, vtx, VETO))ifile << "EiD: "<< ElectronID(aEle, vtx, VETO)<< " Charge: "<<aEle->charge()<<"\n";			
 			
-			genmatched_with_cuts=0;
-			if(bool(matchedGenPrompt && ElectronID(aEle, vtx, VETO)) ){//if1
-				Elec_prompt.push_back(true);
+			if(matchedGenPrompt > 0)Elec_prompt.push_back(true);//store genmatched electrons
+			if(matchedGenPrompt >0 and ElectronID(aEle, vtx, VETO))genmatchedWithID.push_back(true);
+
+	
+			if(bool(ElectronID(aEle, vtx, VETO)) and (aEle->charge()>0) ){//if1
+					
+				for(View<pat::Electron>::const_iterator j = eCand->begin(); j!=eCand->end(); ++j){
+
+                                if ( (j->charge()<0) and bool(ElectronID(aEle, vtx, VETO)) ){
+                                         InvM_with_cuts = (aEle->p4() + j->p4()).M();
+                       			}                 
+				}
+
+
+//				Elec_prompt.push_back(true);
 /*			for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){//outer for loop
 				if (not(i->charge()>0)) continue;
 				genmatched_with_cuts=0;
@@ -391,31 +412,31 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 			} //outer for loop end	
 */
 			}//end of if1
-			else Elec_prompt.push_back(false);
+//			else Elec_prompt.push_back(false);
 
                 }//Gen_level_stuff
 
-		 pat::Electron aEle1, aEle2;
+//		 View<pat::Electron>::const_iterator aEle1, aEle2;
 
 //		if(ElectronID(aEle, vtx, VETO)){
-		{
-				if ( (aEle.charge()>0) and foundp==0 ){
+/*		{
+				if ( (aEle->charge()>0) and foundp==0 ){
 					foundp=1;
 					cout<<"\nfoundp:\n";
-					aEle1 = eCand->at(e);
+					aEle1 = aEle;
 					}
-				if ( (aEle.charge()<0) and foundm==0){
+				if ( (aEle->charge()<0) and foundm==0){
 					foundm=1;
 					cout<<"\nfoundm: \n";
-					aEle2 =eCand->at(e);
+					aEle2 =aEle;
 					}
 				if (foundp==1 and foundm==1){
 					 cout<<"Yess\n\n\n\n"<<endl;
-					 InvM_with_cuts = (aEle1.p4() + aEle2.p4()).M();
+					 InvM_with_cuts = (aEle1->p4() + aEle2->p4()).M();
 					}
-				}
+				}*/
 		}//end of loop1
-	     }//end of electron loop
+	    }//end of electron loop
 
 		
 
@@ -436,7 +457,7 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 			else{
 				if (not (iElec->pt()>25) ) continue;
 				}
-		//	InvM= (i->p4() + iElec->p4()).M();	
+			InvM_ptcut= (i->p4() + iElec->p4()).M();	
 		//	cout<<"1: "<<i->p4()<<" "<<iElec->p4() <<" 2: "<<i->pt()<<" " << iElec->pt()<<" InvM: "<<InvM<<endl;
 		}//end of invmass loop
 
@@ -495,7 +516,15 @@ SusyAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 		ChargeElec.push_back(i->charge());
 	      }
 	//End for Electrons
-	//
+	
+		for(View<pat::Electron>::const_iterator i = eCand->begin(); i != eCand->end(); ++i){
+			if (i->charge()>0)continue;
+			for(View<pat::Electron>::const_iterator j = eCand->begin(); j != eCand->end(); ++j){
+				if (j->charge()<0)continue;
+				InvM= (i->p4() + j->p4()).M();
+			}
+		}
+
 	//Muons
        PtMuon.clear(); EtaMuon.clear(); PhiMuon.clear(); ChargeMu.clear(); 
         edm::Handle< View<pat::Muon>> mCand;
@@ -655,7 +684,7 @@ SusyAnalyzer::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
   //descriptions.addDefault(desc);
 }
 
-bool SusyAnalyzer::ElectronID(const pat::Electron & electron, const reco::Vertex & vtx, const elecIDLevel level) {
+bool SusyAnalyzer::ElectronID(View<pat::Electron>::const_iterator electron, const reco::Vertex & vtx, const elecIDLevel level) {
   // electron ID cuts
   //
   //   // barrel electrons
@@ -683,17 +712,17 @@ bool SusyAnalyzer::ElectronID(const pat::Electron & electron, const reco::Vertex
 	 bool reqConvVeto[4] = {true, true, true, true};
 
 	// endcap electrons
-	double dEtaIn  = electron.deltaEtaSuperClusterTrackAtVtx();
-	double dPhiIn = electron.deltaPhiSuperClusterTrackAtVtx();
-	double sieie = electron.full5x5_sigmaIetaIeta();
-	bool convVeto = electron.passConversionVeto();
-	int mhits = electron.gsfTrack()->hitPattern().numberOfLostHits(reco::HitPattern::MISSING_INNER_HITS);
-	double hoe   = electron.hadronicOverEm();
-	double ooemoop = fabs(1.0/electron.ecalEnergy() - electron.eSuperClusterOverP()/electron.ecalEnergy());
-	double d0vtx = electron.gsfTrack()->dxy(vtx.position());
-	double dzvtx = electron.gsfTrack()->dz(vtx.position());
+	double dEtaIn  = electron->deltaEtaSuperClusterTrackAtVtx();
+	double dPhiIn = electron->deltaPhiSuperClusterTrackAtVtx();
+	double sieie = electron->full5x5_sigmaIetaIeta();
+	bool convVeto = electron->passConversionVeto();
+	int mhits = electron->gsfTrack()->hitPattern().numberOfLostHits(reco::HitPattern::MISSING_INNER_HITS);
+	double hoe   = electron->hadronicOverEm();
+	double ooemoop = fabs(1.0/electron->ecalEnergy() - electron->eSuperClusterOverP()/electron->ecalEnergy());
+	double d0vtx = electron->gsfTrack()->dxy(vtx.position());
+	double dzvtx = electron->gsfTrack()->dz(vtx.position());
 
-	if (electron.isEB()) {
+	if (electron->isEB()) {
 	return eb_deta_cut[level] > fabs(dEtaIn)
 	&& eb_dphi_cut[level] > fabs(dPhiIn)
 	&& eb_ieta_cut[level] > sieie
@@ -704,7 +733,7 @@ bool SusyAnalyzer::ElectronID(const pat::Electron & electron, const reco::Vertex
 	&& (!reqConvVeto[level] || convVeto)
 	&& (eb_misshits_cut[level] >= mhits);
 	
-	}else if (electron.isEE()) {
+	}else if (electron->isEE()) {
 	return ee_deta_cut[level] > fabs(dEtaIn)
 	&& ee_dphi_cut[level] > fabs(dPhiIn)
 	&& ee_ieta_cut[level] > sieie
